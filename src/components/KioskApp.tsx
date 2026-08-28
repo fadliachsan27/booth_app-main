@@ -18,7 +18,8 @@ import FrameCompositor from "@/components/FrameCompositor";
 import {
   listPhotos, clearPhotos, getConfig, saveConfig as apiSaveConfig,
   listTemplates, saveTemplates, cameraStatus, dslrCapture, liveviewUrl,
-  listPrinters, printPhoto, type BoothConfig, type CameraSource, type CameraStatus,
+  listPrinters, printPhoto, serverOnline as apiServerOnline, DEFAULT_CONFIG,
+  type BoothConfig, type CameraSource, type CameraStatus,
 } from "@/lib/api";
 import { toast } from "sonner";
 import type { EditorElement } from "@/types/kiosk";
@@ -1793,7 +1794,7 @@ function PaymentSettings({ config, onConfigChange }: { config: BoothConfig | nul
   );
 }
 
-function SettingsPanel({ templates, onTemplatesChange, onEditTemplate, onBack, bookkeeping, onResetBookkeeping, config, onConfigChange, printers, onRefreshPrinters, publicLinks, onPublicLinksChange, theme, onThemeChange, homeMode, onHomeModeChange, screensaverImage, onScreensaverChange }: { templates: FrameTemplate[]; onTemplatesChange: (t: FrameTemplate[]) => void; onEditTemplate: (t: FrameTemplate) => void; onBack: () => void; bookkeeping: BookkeepingEntry[]; onResetBookkeeping: () => void; config: BoothConfig | null; onConfigChange: (patch: Partial<BoothConfig>) => void; printers: string[]; onRefreshPrinters: () => void; publicLinks: Array<{ id: string; name: string; url: string; folderId: string; isPublic: boolean; status: "active" | "expired" | "error"; createdAt: string; files: number; totalSize: string }>; onPublicLinksChange: (links: Array<{ id: string; name: string; url: string; folderId: string; isPublic: boolean; status: "active" | "expired" | "error"; createdAt: string; files: number; totalSize: string }>) => void; theme: "light"|"dark"|"warm"; onThemeChange: (t: "light"|"dark"|"warm") => void; homeMode: "default"|"camera"|"screensaver"; onHomeModeChange: (m: "default"|"camera"|"screensaver") => void; screensaverImage: string; onScreensaverChange: (img: string) => void }) {
+function SettingsPanel({ templates, onTemplatesChange, onEditTemplate, onBack, bookkeeping, onResetBookkeeping, config, onConfigChange, serverOk, printers, onRefreshPrinters, publicLinks, onPublicLinksChange, theme, onThemeChange, homeMode, onHomeModeChange, screensaverImage, onScreensaverChange }: { templates: FrameTemplate[]; onTemplatesChange: (t: FrameTemplate[]) => void; onEditTemplate: (t: FrameTemplate) => void; onBack: () => void; bookkeeping: BookkeepingEntry[]; onResetBookkeeping: () => void; config: BoothConfig | null; onConfigChange: (patch: Partial<BoothConfig>) => void; serverOk: boolean; printers: string[]; onRefreshPrinters: () => void; publicLinks: Array<{ id: string; name: string; url: string; folderId: string; isPublic: boolean; status: "active" | "expired" | "error"; createdAt: string; files: number; totalSize: string }>; onPublicLinksChange: (links: Array<{ id: string; name: string; url: string; folderId: string; isPublic: boolean; status: "active" | "expired" | "error"; createdAt: string; files: number; totalSize: string }>) => void; theme: "light"|"dark"|"warm"; onThemeChange: (t: "light"|"dark"|"warm") => void; homeMode: "default"|"camera"|"screensaver"; onHomeModeChange: (m: "default"|"camera"|"screensaver") => void; screensaverImage: string; onScreensaverChange: (img: string) => void }) {
   const [activeTab, setActiveTab] = useState("templates");
   const tabs = [
     { id: "templates", label: "Frame Template", icon: Image },
@@ -1808,6 +1809,15 @@ function SettingsPanel({ templates, onTemplatesChange, onEditTemplate, onBack, b
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="min-h-screen flex flex-col bg-background text-foreground">
       {/* Header */}
       <div className="px-6 py-4 flex items-center justify-between"><BackButton onClick={onBack} /><h2 className="text-sm font-medium tracking-widest uppercase flex items-center gap-2"><Settings className="h-4 w-4" strokeWidth={1.5} />Settings</h2><div className="w-20" /></div>
+      {!serverOk && (
+        <div className="mx-6 mb-3 flex items-start gap-2 px-4 py-3 rounded-lg border border-amber-500/40 bg-amber-500/5 text-amber-600 dark:text-amber-400 text-xs">
+          <WifiOff className="h-4 w-4 mt-0.5 flex-shrink-0" />
+          <div className="space-y-0.5">
+            <p className="font-medium">Server photobooth tidak terhubung</p>
+            <p className="text-[11px] opacity-80">Pengaturan & template hanya tersimpan di browser ini. Foto, cetak, DSLR, dan QR download <strong>tidak berfungsi</strong> tanpa server berjalan di PC booth. Deploy Netlify hanya untuk frontend — jalankan <span className="font-mono">npm run dev</span> di PC booth.</p>
+          </div>
+        </div>
+      )}
       <div className="flex-1 flex flex-col sm:flex-row px-6 pb-6 gap-6 overflow-y-auto">
         <nav className="sm:w-48 flex-shrink-0 space-y-1">{tabs.map(tab=><button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs tracking-wide transition-colors ${activeTab===tab.id?"bg-foreground text-primary-foreground":"text-muted-foreground hover:bg-muted"}`}><tab.icon className="h-4 w-4" strokeWidth={1.5} />{tab.label}</button>)}</nav>
         <div className="flex-1 min-h-0">
@@ -1835,6 +1845,7 @@ export default function KioskApp() {
   const [templates, setTemplatesState] = useState<FrameTemplate[]>(DEFAULT_TEMPLATES);
   const [bookkeeping, setBookkeeping] = useState<BookkeepingEntry[]>([]);
   const [config, setConfig] = useState<BoothConfig | null>(null);
+  const [serverOk, setServerOk] = useState(true);
   const [printers, setPrinters] = useState<string[]>([]);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [downloadUrl, setDownloadUrl] = useState("");
@@ -1844,13 +1855,15 @@ export default function KioskApp() {
   const sessionPrice = config?.pricing.sessionPrice ?? 25000;
   const cameraSource: CameraSource = config?.camera.source ?? "webcam";
 
-  // Persist template changes to the server (best effort)
+  // Persist template changes (server + localStorage fallback)
   const setTemplates = useCallback((next: FrameTemplate[]) => {
     setTemplatesState(next);
-    saveTemplates(next).catch(() => {});
+    saveTemplates(next)
+      .then(({ synced }) => toast.success(synced ? "Template tersimpan" : "Template tersimpan di perangkat ini (server offline)"))
+      .catch(() => {});
   }, []);
 
-  // Persist a config patch to the server and confirm with a toast.
+  // Persist a config patch and confirm with a toast.
   const updateConfig = useCallback((patch: Partial<BoothConfig>) => {
     setConfig((prev) => {
       const base = prev ?? ({} as BoothConfig);
@@ -1863,8 +1876,12 @@ export default function KioskApp() {
       };
     });
     apiSaveConfig(patch)
-      .then((next) => { setConfig(next); toast.success("Pengaturan tersimpan"); })
-      .catch(() => toast.error("Gagal menyimpan — server tidak terhubung"));
+      .then(({ config: next, synced }) => {
+        setConfig(next);
+        setServerOk(synced);
+        toast.success(synced ? "Pengaturan tersimpan" : "Tersimpan di perangkat ini — server tidak terhubung");
+      })
+      .catch(() => toast.error("Gagal menyimpan pengaturan"));
   }, []);
   const [theme, setTheme] = useState<"light"|"dark"|"warm">(() => {
     try { return (localStorage.getItem("kiosk-theme") as "light"|"dark"|"warm") || "dark"; } catch { return "dark"; }
@@ -1896,14 +1913,9 @@ export default function KioskApp() {
   // Load bookkeeping from the local server (survives restarts)
   useEffect(() => { listPhotos().then(setBookkeeping).catch(() => {}); }, []);
 
-  // Load operator config + templates + printer list from the server
+  // Load operator config + templates + printer list (server, or localStorage fallback)
   useEffect(() => {
-    getConfig().then(setConfig).catch(() => setConfig({
-      camera: { source: "webcam", dccUrl: "http://localhost:5513", gphoto2Bin: "gphoto2", countdown: 7 },
-      printer: { enabled: false, autoPrint: false, name: "", copies: 1, command: "" },
-      pricing: { sessionPrice: 25000 },
-      payment: { enabled: false, qrisImage: "", qrisPayload: "", note: "" },
-    }));
+    getConfig().then((c) => { setConfig(c); setServerOk(apiServerOnline); });
     listTemplates().then((t) => {
       if (t.length > 0) setTemplatesState(t);
       else saveTemplates(DEFAULT_TEMPLATES).catch(() => {});
@@ -1927,7 +1939,7 @@ export default function KioskApp() {
         {screen==="preview"&&selectedTemplate&&<FrameCompositor key="preview" template={selectedTemplate} photos={capturedPhotos} theme={theme} price={sessionPrice} canPrint={!!config?.printer.enabled} paymentEnabled={paymentEnabled} onUploaded={(entry)=>{setDownloadUrl(entry.downloadUrl);setUploadedId(entry.id);setBookkeeping(prev=>[entry,...prev.filter(e=>e.id!==entry.id)]);}} onNext={()=>setScreen(paymentEnabled?"payment":"download")} onBack={goToHome} />}
         {screen==="payment"&&<PaymentScreen key="payment" amount={sessionPrice} payment={config?.payment ?? null} onPaid={()=>setScreen("download")} onBack={()=>setScreen("preview")} />}
         {screen==="download"&&<DownloadScreen key="download" onNewPhoto={goToHome} downloadUrl={downloadUrl} canPrint={!!config?.printer.enabled} photoId={uploadedId} />}
-        {screen==="settings"&&<SettingsPanel key="settings" templates={templates} onTemplatesChange={setTemplates} onEditTemplate={t=>{setEditingTemplate(t);setScreen("editor")}} onBack={goToHome} bookkeeping={bookkeeping} onResetBookkeeping={resetBookkeeping} config={config} onConfigChange={updateConfig} printers={printers} onRefreshPrinters={()=>listPrinters().then(setPrinters).catch(()=>{})} publicLinks={publicLinks} onPublicLinksChange={setPublicLinks} theme={theme} onThemeChange={setTheme} homeMode={homeMode} onHomeModeChange={(m)=>{setHomeMode(m);try{localStorage.setItem("kiosk-homemode",m)}catch{}}} screensaverImage={screensaverImage} onScreensaverChange={(img)=>{setScreensaverImage(img);try{localStorage.setItem("kiosk-screensaver",img)}catch{}}} />}
+        {screen==="settings"&&<SettingsPanel key="settings" templates={templates} onTemplatesChange={setTemplates} onEditTemplate={t=>{setEditingTemplate(t);setScreen("editor")}} onBack={goToHome} bookkeeping={bookkeeping} onResetBookkeeping={resetBookkeeping} config={config} onConfigChange={updateConfig} serverOk={serverOk} printers={printers} onRefreshPrinters={()=>listPrinters().then(setPrinters).catch(()=>{})} publicLinks={publicLinks} onPublicLinksChange={setPublicLinks} theme={theme} onThemeChange={setTheme} homeMode={homeMode} onHomeModeChange={(m)=>{setHomeMode(m);try{localStorage.setItem("kiosk-homemode",m)}catch{}}} screensaverImage={screensaverImage} onScreensaverChange={(img)=>{setScreensaverImage(img);try{localStorage.setItem("kiosk-screensaver",img)}catch{}}} />}
       {screen==="editor"&&editingTemplate&&<TemplateEditor key="editor" template={editingTemplate} onSave={(t)=>{setTemplates(templates.map(x=>x.id===t.id?t:x));setScreen("settings")}} onBack={goBack} />}
       </AnimatePresence>
     </div>

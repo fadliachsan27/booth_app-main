@@ -23,11 +23,49 @@ DSLR & printer **tidak bisa** dikendalikan langsung dari browser. Server photobo
 di PC host yang menjalankannya. Tablet cukup membuka alamat web PC host.
 Semua tetap jalan dengan **webcam + tanpa printer** kalau host tidak dipakai.
 
-## Menjalankan
+## Cara pakai — pilih salah satu
+
+Aplikasi ini = **frontend + server Node + SQLite** dalam 1 repo. Server (`npm start`)
+juga menyajikan frontend, jadi **cukup 1 deploy**.
+
+| | Cocok untuk | Foto/QR download | DSLR kabel | Printer |
+|---|---|---|---|---|
+| **A. Lokal di PC booth** | booth dengan DSLR + printer | ✅ (LAN) | ✅ | ✅ |
+| **B. Deploy ke Render/Railway** | booth pakai webcam, mau QR bisa discan dari mana saja | ✅ (public URL) | ❌ | ❌ (pakai dialog print browser) |
+
+> **Netlify/Vercel TIDAK bisa** — cuma hosting statis, server Node tidak jalan.
+
+### A. Lokal (di PC booth)
 
 ```bash
 npm install
 npm run dev
+```
+
+Tablet buka `http://<ip-PC-booth>:5173`. PC + tablet di WiFi sama.
+
+### B. Deploy 1-service ke Render (webcam mode)
+
+1. Push repo ini ke GitHub.
+2. [render.com](https://render.com) → **New → Blueprint** → pilih repo → **Apply**.
+   (`render.yaml` sudah ada — build & start otomatis.)
+3. Selesai. Buka URL yang dikasih Render (mis. `https://photobooth-xxx.onrender.com`).
+   QR download otomatis pakai URL itu → pengunjung bisa scan dari HP mana saja.
+
+- `render.yaml` sudah pakai plan **free** — build command `npm install && npm run build`,
+  start `npm start`, tanpa disk. Kalau Render minta bayar, pastikan pilih
+  instance **Free** dan JANGAN tambah Disk.
+- Free: foto/DB hilang tiap redeploy (tidak masalah — pengunjung download saat
+  acara, setting & template tersimpan di browser). Service tidur setelah ~15 mnt
+  idle (cold start ~30 dtk).
+- Mau permanen: plan **starter** ($7/bln) + Disk mount `/data` + env `DATA_DIR=/data`.
+
+## Menjalankan manual (build + serve, 1 port)
+
+```bash
+npm install
+npm run build     # hasil di dist/
+npm start         # server + frontend di http://localhost:4000
 ```
 
 - Frontend: http://localhost:5173  (dari tablet: `http://<ip-host>:5173`)

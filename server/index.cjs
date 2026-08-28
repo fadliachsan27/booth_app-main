@@ -20,7 +20,9 @@ const { DatabaseSync } = require("node:sqlite");
 
 const PORT = Number(process.env.PORT) || 4000;
 const IS_WIN = process.platform === "win32";
-const DATA_DIR = path.join(__dirname, "data");
+// DATA_DIR can point at a persistent disk (e.g. Render/Railway volume).
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const DIST_DIR = path.join(__dirname, "..", "dist");
 const UPLOAD_DIR = path.join(DATA_DIR, "uploads");
 const CAPTURE_DIR = path.join(DATA_DIR, "captures");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -126,10 +128,21 @@ function lanIp() {
   }
   return "localhost";
 }
-const BASE_URL =
-  process.env.PUBLIC_BASE_URL?.replace(/\/$/, "") || `http://${lanIp()}:${PORT}`;
+const LAN_BASE = `http://${lanIp()}:${PORT}`;
 
-function photoEntry(row) {
+/** Base URL used in QR codes / download links. Priority:
+ *  PUBLIC_BASE_URL env → the request's own host (works on any cloud host) → LAN IP. */
+function baseUrl(req) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, "");
+  if (req) {
+    const host = req.get("x-forwarded-host") || req.get("host");
+    if (host) return `${req.protocol}://${host}`;
+  }
+  return LAN_BASE;
+}
+
+function photoEntry(row, req) {
+  const base = baseUrl(req);
   return {
     id: row.id,
     templateId: row.template_id || "",
@@ -137,8 +150,8 @@ function photoEntry(row) {
     price: row.price || 0,
     timestamp: row.created_at,
     date: new Date(row.created_at).toISOString().split("T")[0],
-    downloadUrl: `${BASE_URL}/d/${row.id}`,
-    fileUrl: `${BASE_URL}/api/photos/${row.id}/file`,
+    downloadUrl: `${base}/d/${row.id}`,
+    fileUrl: `${base}/api/photos/${row.id}/file`,
   };
 }
 
@@ -263,11 +276,12 @@ async function printFile(filePath, cfg) {
 
 /* ---------- app ---------- */
 const app = express();
+app.set("trust proxy", true); // honour x-forwarded-proto/host on cloud hosts
 app.use(cors());
 app.use(express.json({ limit: "40mb" }));
 
-app.get("/api/health", (_req, res) =>
-  res.json({ ok: true, baseUrl: BASE_URL, platform: process.platform }),
+app.get("/api/health", (req, res) =>
+  res.json({ ok: true, baseUrl: baseUrl(req), platform: process.platform }),
 );
 
 /* --- config --- */
@@ -411,7 +425,7 @@ app.post("/api/photos", async (req, res) => {
       id, filename, templateId ?? null, templateName ?? null,
       Math.round(Number(price) || 0), createdAt,
     );
-    const entry = photoEntry(q.getPhoto.get(id));
+    const entry = photoEntry(q.getPhoto.get(id), req);
 
     // Optional auto-print
     const cfg = loadConfig();
@@ -427,7 +441,7 @@ app.post("/api/photos", async (req, res) => {
   }
 });
 
-app.get("/api/photos", (_req, res) => res.json(q.listPhotos.all().map(photoEntry)));
+app.get("/api/photos", (req, res) => res.json(q.listPhotos.all().map((r) => photoEntry(r, req))));
 
 app.delete("/api/photos", (_req, res) => {
   for (const row of q.listPhotos.all()) {
@@ -448,7 +462,7 @@ app.get("/d/:id", (req, res) => {
   if (!row) {
     return res.status(404).type("html").send("<h1>Foto tidak ditemukan</h1>");
   }
-  const fileUrl = `${BASE_URL}/api/photos/${row.id}/file`;
+  const fileUrl = `${baseUrl(req)}/api/photos/${row.id}/file`;
   res.type("html").send(`<!doctype html>
 <html lang="id"><head><meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -471,9 +485,21 @@ app.get("/d/:id", (req, res) => {
 </body></html>`);
 });
 
+/* ---------- static frontend (single-service deploy) ---------- */
+// When `dist/` exists (after `npm run build`) this server also serves the UI,
+// so the whole app is one deployable service.
+if (fs.existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api/") || req.path.startsWith("/d/")) return next();
+    res.sendFile(path.join(DIST_DIR, "index.html"));
+  });
+}
+
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`\n  Photobooth server  →  ${BASE_URL}`);
+  console.log(`\n  Photobooth server  →  ${process.env.PUBLIC_BASE_URL || LAN_BASE}`);
   console.log(`  Local              →  http://localhost:${PORT}`);
   console.log(`  Platform           →  ${process.platform}`);
+  console.log(`  Serving UI         →  ${fs.existsSync(DIST_DIR) ? "yes (dist/)" : "no (run npm run build)"}`);
   console.log(`  DB                 →  ${path.join(DATA_DIR, "booth.db")}\n`);
 });
