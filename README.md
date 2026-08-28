@@ -1,0 +1,112 @@
+# Photobooth Kiosk
+
+Aplikasi photobooth layar-sentuh: pilih template → ambil foto (webcam **atau DSLR**) →
+compositing frame → **cetak ke printer** / download via QR.
+
+## Tech stack
+
+- **Frontend**: Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui + Framer Motion
+- **Backend**: Express + SQLite (`node:sqlite`, tanpa native build) — `server/index.cjs`
+
+Convex / auth **sudah dihapus**. Tidak ada login; kiosk langsung terbuka.
+
+## Arsitektur (penting untuk DSLR / printer)
+
+```
+[ Tablet / layar sentuh ]  --- WiFi --->  [ PC "host" di booth ]
+   browser buka                              - server/index.cjs  (port 4000)
+   http://<ip-host>:5173                      - digiCamControl / gphoto2  (DSLR via kabel USB)
+                                              - printer terpasang di Windows
+```
+
+DSLR & printer **tidak bisa** dikendalikan langsung dari browser. Server photobooth
+di PC host yang menjalankannya. Tablet cukup membuka alamat web PC host.
+Semua tetap jalan dengan **webcam + tanpa printer** kalau host tidak dipakai.
+
+## Menjalankan
+
+```bash
+npm install
+npm run dev
+```
+
+- Frontend: http://localhost:5173  (dari tablet: `http://<ip-host>:5173`)
+- Server:   http://localhost:4000
+- `npm run dev` menjalankan keduanya. Terpisah: `npm run dev:web` / `npm run dev:api`.
+
+## Panel Operator (admin)
+
+Tombol **OPERATOR** di layar utama. Semua setelan tersimpan di `server/data/booth.db`.
+
+| Tab | Fungsi |
+|---|---|
+| **Frame Template** | Tambah/hapus frame, upload PNG, atur layout & jumlah pose, edit di Layout Editor, set default. Tersimpan permanen di server. |
+| **Kamera** | Countdown timer • sumber kamera: Webcam / DSLR–digiCamControl / DSLR–gphoto2 • Test Koneksi & Test Ambil Foto |
+| **Printer** | Aktifkan cetak • pilih printer (daftar dari OS) • jumlah salinan • Auto-Print • perintah cetak kustom • Test Print |
+| **Pembayaran** | Aktifkan • Tunai (default) • upload gambar QRIS • catatan |
+| **Pembukuan** | Atur harga per sesi • pemasukan hari ini/total • export CSV • reset |
+
+### Setup DSLR (Windows, direkomendasikan)
+
+1. Colok DSLR ke PC host via kabel USB.
+2. Install **digiCamControl** (gratis). Buka → *File → Settings → Webserver* → centang **Enable** (port 5513).
+3. Di panel Operator → Kamera → pilih **DSLR — digiCamControl**, URL `http://localhost:5513`.
+4. Klik **Test Koneksi** lalu **Test Ambil Foto**.
+
+Mac/Linux: install `gphoto2`, pilih **DSLR — gPhoto2**.
+Alternatif tanpa software: keluarkan HDMI DSLR ke **HDMI capture card** → pilih **Webcam / Capture Card**.
+
+### Setup Printer (kabel USB atau jaringan)
+
+Printer apa pun yang **drivernya terpasang di Windows PC host** otomatis terbaca
+di daftar (`Get-Printer`) — USB, jaringan, thermal/dye-sub (DNP, Mitsubishi,
+Canon SELPHY), semuanya.
+
+1. Pasang printer + install drivernya di Windows PC host. Set **ukuran kertas /
+   borderless** di *Printing Preferences* printer tsb.
+2. Panel Operator → Printer → **Aktifkan Cetak** → pilih printer (atau biarkan
+   kosong = printer default Windows) → atur salinan.
+3. Opsional **Auto-Print** (cetak otomatis tiap sesi selesai).
+
+Cetak dijalankan senyap: Windows `mspaint /pt "<file>" "<printer>"`, Linux/Mac `lp`.
+Bisa diganti di "perintah cetak kustom" (placeholder `{file}` `{printer}` `{copies}`).
+
+### Pembayaran (ATM / dompet digital — verifikasi manual)
+
+Muncul **setelah pelanggan lihat hasil foto**, sebelum bisa cetak & scan QR download.
+
+Pilihan bayar: **Tunai** (selalu ada) dan **Scan QRIS** (kalau QRIS diupload).
+
+1. Panel Operator → Pembayaran → **Aktifkan**.
+2. **Tunai**: tidak perlu setelan — pelanggan bayar ke petugas, petugas tekan "Sudah Bayar".
+3. **QRIS (opsional)**: upload **screenshot QR "Terima Uang" / QRIS** dari e-wallet
+   kamu (SeaBank / DANA / GoPay / OVO / ShopeePay) atau QRIS merchant. Crop sampai
+   hanya QR-nya. Ini yang bisa di-scan & dibayar pelanggan.
+4. Layar bayar menampilkan nominal + pilihan Tunai/QRIS. Setelah dibayar, petugas
+   tekan **"Sudah Bayar"** → lanjut ke cetak & QR download.
+
+Tidak ada payment gateway — verifikasi manual, cukup untuk kios kecil, tanpa biaya
+per transaksi. Kalau butuh auto-verifikasi (QRIS dinamis), perlu integrasi
+Midtrans/Xendit terpisah.
+
+## Download foto via QR
+
+Setiap foto final di-upload ke server, disimpan di `server/data/uploads/` + 1 baris
+di `booth.db` (sekaligus data pembukuan). Layar "Download" menampilkan QR
+`http://<ip-host>:4000/d/<id>` → HP pengunjung (WiFi sama) scan → tombol Download.
+
+## Konfigurasi (opsional) — `.env`
+
+| Var | Default | Guna |
+|---|---|---|
+| `PORT` | `4000` | port server |
+| `PUBLIC_BASE_URL` | `http://<LAN-IP>:PORT` | URL di dalam QR (set ke tunnel bila HP beda jaringan) |
+| `VITE_API_URL` | `http://<host>:4000` | alamat server dari sisi frontend |
+
+## Struktur
+
+- `src/components/KioskApp.tsx` — seluruh alur kiosk + panel Operator
+- `src/components/FrameCompositor.tsx` — render frame + upload + cetak
+- `src/components/TemplateEditor.tsx` — Layout Editor per template
+- `src/lib/api.ts` — client ke server (photos, config, templates, capture, print)
+- `server/index.cjs` — backend: photos, config, templates, `/api/capture`, `/api/print`, `/api/printers`
