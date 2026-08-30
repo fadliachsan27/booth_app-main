@@ -1,0 +1,32 @@
+# One-service deploy on Render (frontend + API + SQLite) — FREE plan by default.
+# Render dashboard → New → Blueprint → pick this repo → Apply.
+services:
+  - type: web
+    name: photobooth
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+
+# FREE plan notes:
+# - No persistent disk: booth.db + uploaded photos live on an ephemeral disk and
+#   are wiped on every redeploy / restart. That's usually fine for a photobooth —
+#   guests download their photo via QR during the event, and operator config +
+#   templates also persist in the browser (localStorage).
+# - Free web services sleep after ~15 min idle (≈30 s cold start on next visit).
+#
+# WANT PERMANENT STORAGE? Upgrade to the "starter" plan ($7/mo) and add:
+#     plan: starter
+#     disk:
+#       name: photobooth-data
+#       mountPath: /data
+#       sizeGB: 1
+#   ...plus an env var  DATA_DIR = /data
+#
+# DSLR tethering and hardware printing need a local PC — they do NOT work in the
+# cloud. Webcam capture, QRIS payment, and QR photo download all work.
