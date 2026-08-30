@@ -1,0 +1,25 @@
+# Netlify config for the FRONTEND ONLY (static kiosk UI).
+#
+# IMPORTANT: Netlify can't run server/index.cjs (Express + SQLite + DSLR +
+# printing) — it only serves static files. Without a backend, the kiosk still
+# works (webcam capture, frame compositing, photo auto-saved to the device),
+# but photo upload / QR download / DSLR / printing are disabled and it shows
+# an "offline" fallback (see FrameCompositor / DownloadScreen).
+#
+# To get those working from this Netlify deploy, host server/ somewhere with a
+# public URL (Render, Railway, your own PC via a tunnel, ...) and set the
+# VITE_API_URL environment variable below (or in Netlify's UI) to that URL.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # VITE_API_URL = "https://your-backend.onrender.com"
+
+# React Router — serve index.html for any path so client-side routing works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
