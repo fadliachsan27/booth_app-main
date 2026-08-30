@@ -103,6 +103,9 @@ export async function uploadPhoto(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ imageBase64, ...meta }),
+      // Bounded wait — no backend (e.g. static hosting with no server) must
+      // fail fast instead of hanging the "Menyiapkan link download..." spinner.
+      signal: AbortSignal.timeout(10000),
     }),
   );
 }

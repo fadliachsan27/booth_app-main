@@ -336,9 +336,10 @@ interface FrameCompositorProps {
   onBack: () => void;
   onNext: () => void;
   onUploaded?: (entry: SavedPhoto) => void;
+  onUploadFailed?: () => void;
 }
 
-export default function FrameCompositor({ template, photos, theme, price = 0, canPrint = false, paymentEnabled = false, onBack, onNext, onUploaded }: FrameCompositorProps) {
+export default function FrameCompositor({ template, photos, theme, price = 0, canPrint = false, paymentEnabled = false, onBack, onNext, onUploaded, onUploadFailed }: FrameCompositorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const uploadedRef = useRef(false);
   const uploadedIdRef = useRef<string | null>(null);
@@ -442,7 +443,7 @@ export default function FrameCompositor({ template, photos, theme, price = 0, ca
           price,
         })
           .then((entry) => { uploadedIdRef.current = entry.id; onUploaded?.(entry); })
-          .catch((err) => console.warn("[photobooth] upload failed:", err));
+          .catch((err) => { console.warn("[photobooth] upload failed:", err); onUploadFailed?.(); });
       }, 250);
     }, 900);
     return () => clearTimeout(timer);

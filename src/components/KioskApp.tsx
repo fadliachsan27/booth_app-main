@@ -817,7 +817,7 @@ function PreviewScreen({ template, photos, onPrint, onNext, onBack }: { template
 /* ------------------------------------------------------------------ */
 /*  Screen 5 — QR Download                                             */
 /* ------------------------------------------------------------------ */
-function DownloadScreen({ onNewPhoto, downloadUrl, canPrint, photoId }: { onNewPhoto: () => void; downloadUrl: string; canPrint: boolean; photoId: string }) {
+function DownloadScreen({ onNewPhoto, downloadUrl, uploadFailed, canPrint, photoId }: { onNewPhoto: () => void; downloadUrl: string; uploadFailed: boolean; canPrint: boolean; photoId: string }) {
   const url = downloadUrl;
   const [printing, setPrinting] = useState(false);
   const [printed, setPrinted] = useState(false);
@@ -834,12 +834,23 @@ function DownloadScreen({ onNewPhoto, downloadUrl, canPrint, photoId }: { onNewP
       <div className="px-6 py-4 flex items-center justify-between"><button onClick={onNewPhoto} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"><ChevronLeft className="h-4 w-4" /><span>Kembali</span></button><h2 className="text-sm font-medium tracking-widest uppercase text-muted-foreground">Selesai</h2><div className="w-20" /></div>
       {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
-        <div className="text-center space-y-3"><h2 className="text-2xl font-light tracking-tight">Foto kamu siap!</h2><p className="text-sm text-muted-foreground">{url ? "Scan QR untuk download foto" : "Menyiapkan link download..."}</p></div>
+        <div className="text-center space-y-3">
+          <h2 className="text-2xl font-light tracking-tight">Foto kamu siap!</h2>
+          <p className="text-sm text-muted-foreground">
+            {url ? "Scan QR untuk download foto" : uploadFailed ? "Link download tidak tersedia" : "Menyiapkan link download..."}
+          </p>
+        </div>
         {url ? (
           <>
             <div className="bg-white p-6 rounded-lg border border-border"><QRCodeSVG value={url} size={160} bgColor="white" fgColor="#111111" /></div>
             <div className="text-center text-sm text-muted-foreground space-y-1"><p>Atau kunjungi:</p><p className="font-mono text-foreground break-all max-w-xs">{url}</p></div>
           </>
+        ) : uploadFailed ? (
+          <div className="flex flex-col items-center gap-3 px-6 py-6 rounded-xl border border-amber-500/30 bg-amber-500/5 max-w-sm text-center">
+            <WifiOff className="h-8 w-8 text-amber-500" strokeWidth={1.5} />
+            <p className="text-sm text-foreground">Server photobooth tidak terhubung — QR download tidak bisa dibuat.</p>
+            <p className="text-xs text-muted-foreground">Tenang, foto <strong>sudah otomatis tersimpan</strong> ke folder Downloads di perangkat ini.</p>
+          </div>
         ) : (
           <div className="h-[208px] flex items-center justify-center"><RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         )}
@@ -1850,6 +1861,7 @@ export default function KioskApp() {
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
   const [downloadUrl, setDownloadUrl] = useState("");
   const [uploadedId, setUploadedId] = useState("");
+  const [uploadFailed, setUploadFailed] = useState(false);
 
   const countdownDuration = config?.camera.countdown ?? 7;
   const sessionPrice = config?.pricing.sessionPrice ?? 25000;
@@ -1923,7 +1935,7 @@ export default function KioskApp() {
     listPrinters().then(setPrinters).catch(() => {});
   }, []);
 
-  const goToHome = () => { setScreen("home"); setSelectedTemplate(null); setEditingTemplate(null); setDownloadUrl(""); setUploadedId(""); };
+  const goToHome = () => { setScreen("home"); setSelectedTemplate(null); setEditingTemplate(null); setDownloadUrl(""); setUploadedId(""); setUploadFailed(false); };
   const resetBookkeeping = () => { clearPhotos().catch(() => {}); setBookkeeping([]); };
   const goBack = useCallback(() => { const backMap: Record<string, string> = { templates:"home", ready:"templates", camera:"ready", preview:"camera", payment:"preview", download:"home", settings:"home", editor:"settings", home:"home" }; setScreen(c=>backMap[c] as KioskScreen); }, []);
   const paymentEnabled = !!config?.payment.enabled;
@@ -1936,9 +1948,9 @@ export default function KioskApp() {
         {screen==="templates"&&<TemplateSelectionScreen key="templates" templates={templates} selectedId={selectedTemplate?.id??templates.find(t=>t.isDefault)?.id??""} onSelect={t=>{setSelectedTemplate(t);setScreen("ready")}} onBack={goToHome} />}
         {screen==="ready"&&selectedTemplate&&<CameraReadyScreen key="ready" template={selectedTemplate} onStart={()=>setScreen("camera")} onCancel={goToHome} />}
         {screen==="camera"&&selectedTemplate&&<CameraScreen key="camera" template={selectedTemplate} cameraSource={cameraSource} onComplete={(photos)=>{setCapturedPhotos(photos);setScreen("preview")}} onCancel={goToHome} countdown={countdownDuration} />}
-        {screen==="preview"&&selectedTemplate&&<FrameCompositor key="preview" template={selectedTemplate} photos={capturedPhotos} theme={theme} price={sessionPrice} canPrint={!!config?.printer.enabled} paymentEnabled={paymentEnabled} onUploaded={(entry)=>{setDownloadUrl(entry.downloadUrl);setUploadedId(entry.id);setBookkeeping(prev=>[entry,...prev.filter(e=>e.id!==entry.id)]);}} onNext={()=>setScreen(paymentEnabled?"payment":"download")} onBack={goToHome} />}
+        {screen==="preview"&&selectedTemplate&&<FrameCompositor key="preview" template={selectedTemplate} photos={capturedPhotos} theme={theme} price={sessionPrice} canPrint={!!config?.printer.enabled} paymentEnabled={paymentEnabled} onUploaded={(entry)=>{setDownloadUrl(entry.downloadUrl);setUploadedId(entry.id);setUploadFailed(false);setBookkeeping(prev=>[entry,...prev.filter(e=>e.id!==entry.id)]);}} onUploadFailed={()=>setUploadFailed(true)} onNext={()=>setScreen(paymentEnabled?"payment":"download")} onBack={goToHome} />}
         {screen==="payment"&&<PaymentScreen key="payment" amount={sessionPrice} payment={config?.payment ?? null} onPaid={()=>setScreen("download")} onBack={()=>setScreen("preview")} />}
-        {screen==="download"&&<DownloadScreen key="download" onNewPhoto={goToHome} downloadUrl={downloadUrl} canPrint={!!config?.printer.enabled} photoId={uploadedId} />}
+        {screen==="download"&&<DownloadScreen key="download" onNewPhoto={goToHome} downloadUrl={downloadUrl} uploadFailed={uploadFailed} canPrint={!!config?.printer.enabled} photoId={uploadedId} />}
         {screen==="settings"&&<SettingsPanel key="settings" templates={templates} onTemplatesChange={setTemplates} onEditTemplate={t=>{setEditingTemplate(t);setScreen("editor")}} onBack={goToHome} bookkeeping={bookkeeping} onResetBookkeeping={resetBookkeeping} config={config} onConfigChange={updateConfig} serverOk={serverOk} printers={printers} onRefreshPrinters={()=>listPrinters().then(setPrinters).catch(()=>{})} publicLinks={publicLinks} onPublicLinksChange={setPublicLinks} theme={theme} onThemeChange={setTheme} homeMode={homeMode} onHomeModeChange={(m)=>{setHomeMode(m);try{localStorage.setItem("kiosk-homemode",m)}catch{}}} screensaverImage={screensaverImage} onScreensaverChange={(img)=>{setScreensaverImage(img);try{localStorage.setItem("kiosk-screensaver",img)}catch{}}} />}
       {screen==="editor"&&editingTemplate&&<TemplateEditor key="editor" template={editingTemplate} onSave={(t)=>{setTemplates(templates.map(x=>x.id===t.id?t:x));setScreen("settings")}} onBack={goBack} />}
       </AnimatePresence>
