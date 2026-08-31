@@ -8,6 +8,7 @@ import "./index.css";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
+const Download = lazy(() => import("./pages/Download.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 // Simple loading fallback for route transitions
@@ -105,6 +106,7 @@ function AppRoutes() {
       <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/d/:id" element={<Download />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

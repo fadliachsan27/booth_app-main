@@ -6,145 +6,160 @@ compositing frame → **cetak ke printer** / download via QR.
 ## Tech stack
 
 - **Frontend**: Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui + Framer Motion
-- **Backend**: Express + SQLite (`node:sqlite`, tanpa native build) — `server/index.cjs`
+- **Data**: Firebase **Firestore** — dipanggil langsung dari browser, tanpa server sendiri
+- **Agent**: `agent/index.cjs` — proses kecil di PC booth yang jalankan DSLR & printer
 
-Convex / auth **sudah dihapus**. Tidak ada login; kiosk langsung terbuka.
+Convex / auth / server Express **sudah dihapus**. Tidak ada login; kiosk langsung terbuka.
 
-## Arsitektur (penting untuk DSLR / printer)
+## Arsitektur
 
 ```
-[ Tablet / layar sentuh ]  --- WiFi --->  [ PC "host" di booth ]
-   browser buka                              - server/index.cjs  (port 4000)
-   http://<ip-host>:5173                      - digiCamControl / gphoto2  (DSLR via kabel USB)
-                                              - printer terpasang di Windows
+[ Kiosk UI ]  --- internet --->  [ Firebase Firestore ]  <--- internet ---  [ Agent di PC booth ]
+  Netlify / localhost              pb_config, pb_templates,                    DSLR (digiCamControl/
+  (frontend statis)                 pb_photos, pb_jobs                          gphoto2) + printer
 ```
 
-DSLR & printer **tidak bisa** dikendalikan langsung dari browser. Server photobooth
-di PC host yang menjalankannya. Tablet cukup membuka alamat web PC host.
-Semua tetap jalan dengan **webcam + tanpa printer** kalau host tidak dipakai.
+- Kiosk bisa dibuka **dari mana saja** (Netlify, atau `npm run dev` lokal) — semuanya
+  baca/tulis langsung ke Firestore. Foto, template, config, pembukuan semua di sana.
+- DSLR & printer **wajib** ada proses yang jalan fisik di PC booth (tidak bisa dari
+  cloud) — itu tugas `agent/index.cjs`. Kiosk menaruh "perintah" (capture/print) di
+  collection `pb_jobs`, agent yang mengerjakan lalu menulis hasilnya balik.
+- **Tidak perlu server, port terbuka, atau tunnel** — agent cuma butuh koneksi
+  internet keluar biasa ke Firebase.
+- Tanpa agent (mis. belum dinyalakan), kiosk tetap jalan pakai **webcam** + tanpa
+  cetak — cuma opsi DSLR/print yang nonaktif.
 
-## Cara pakai — pilih salah satu
+## Setup awal (sekali saja)
 
-Aplikasi ini = **frontend + server Node + SQLite** dalam 1 repo. Server (`npm start`)
-juga menyajikan frontend, jadi **cukup 1 deploy**.
-
-| | Cocok untuk | Foto/QR download | DSLR kabel | Printer |
-|---|---|---|---|---|
-| **A. Lokal di PC booth** | booth dengan DSLR + printer | ✅ (LAN) | ✅ | ✅ |
-| **B. Deploy ke Render/Railway** | booth pakai webcam, mau QR bisa discan dari mana saja | ✅ (public URL) | ❌ | ❌ (pakai dialog print browser) |
-
-> **Netlify/Vercel TIDAK bisa** — cuma hosting statis, server Node tidak jalan.
-
-### A. Lokal (di PC booth)
+1. **Firebase project** — sudah dibuat & config-nya ada di `firebase.config.json`
+   (aman untuk di-commit, bukan rahasia — akses diatur lewat Firestore Security Rules,
+   bukan dengan menyembunyikan key ini).
+2. **Firestore Rules** — Firebase Console → Firestore Database → tab **Rules**, isi:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /pb_config/{doc} { allow read, write: if true; }
+       match /pb_templates/{id} {
+         allow read, write: if true;
+         match /chunks/{c} { allow read, write: if true; }
+       }
+       match /pb_photos/{id} {
+         allow read, write: if true;
+         match /chunks/{c} { allow read, write: if true; }
+       }
+       match /pb_jobs/{id} {
+         allow read, write: if true;
+         match /chunks/{c} { allow read, write: if true; }
+       }
+       match /{document=**} { allow read, write: if false; }
+     }
+   }
+   ```
+   (Kiosk tidak punya login — collection `pb_*` memang publik by design, tapi
+   baris terakhir mengunci semua yang lain di project ini.)
 
 ```bash
 npm install
+```
+
+## Menjalankan
+
+```bash
 npm run dev
 ```
+→ http://localhost:5173 — jalan penuh (kamera, template, pembayaran, QR download)
+tanpa perlu apa pun lagi selain internet.
 
-Tablet buka `http://<ip-PC-booth>:5173`. PC + tablet di WiFi sama.
-
-### B. Deploy 1-service ke Render (webcam mode)
-
-1. Push repo ini ke GitHub.
-2. [render.com](https://render.com) → **New → Blueprint** → pilih repo → **Apply**.
-   (`render.yaml` sudah ada — build & start otomatis.)
-3. Selesai. Buka URL yang dikasih Render (mis. `https://photobooth-xxx.onrender.com`).
-   QR download otomatis pakai URL itu → pengunjung bisa scan dari HP mana saja.
-
-- `render.yaml` sudah pakai plan **free** — build command `npm install && npm run build`,
-  start `npm start`, tanpa disk. Kalau Render minta bayar, pastikan pilih
-  instance **Free** dan JANGAN tambah Disk.
-- Free: foto/DB hilang tiap redeploy (tidak masalah — pengunjung download saat
-  acara, setting & template tersimpan di browser). Service tidur setelah ~15 mnt
-  idle (cold start ~30 dtk).
-- Mau permanen: plan **starter** ($7/bln) + Disk mount `/data` + env `DATA_DIR=/data`.
-
-## Menjalankan manual (build + serve, 1 port)
+### Mau DSLR & printer? Nyalakan agent juga (di PC booth)
 
 ```bash
-npm install
-npm run build     # hasil di dist/
-npm start         # server + frontend di http://localhost:4000
+npm run agent
 ```
+atau **klik 2x `start-photobooth.bat`** (jalan di background, boleh tutup terminal).
+`stop-photobooth.bat` untuk mematikan.
 
-- Frontend: http://localhost:5173  (dari tablet: `http://<ip-host>:5173`)
-- Server:   http://localhost:4000
-- `npm run dev` menjalankan keduanya. Terpisah: `npm run dev:web` / `npm run dev:api`.
+## Deploy ke Netlify (frontend)
+
+Sudah dikonfigurasi (`netlify.toml`) — hubungkan repo GitHub ini ke Netlify (Site
+configuration → Build & deploy → Link repository), setiap `git push` ke `main`
+otomatis build & deploy. Build command `npm run build`, publish `dist`.
+
+**Tidak perlu env var apa pun** — config Firebase sudah ikut ter-build dari
+`firebase.config.json`. Agent (`start-photobooth.bat`) tetap harus jalan di PC booth
+kalau mau DSLR/print aktif dari deploy Netlify ini juga.
 
 ## Panel Operator (admin)
 
-Tombol **OPERATOR** di layar utama. Semua setelan tersimpan di `server/data/booth.db`.
+Tombol **OPERATOR** di layar utama. Semua setelan tersimpan di Firestore (`pb_config`).
 
 | Tab | Fungsi |
 |---|---|
-| **Frame Template** | Tambah/hapus frame, upload PNG, atur layout & jumlah pose, edit di Layout Editor, set default. Tersimpan permanen di server. |
-| **Kamera** | Countdown timer • sumber kamera: Webcam / DSLR–digiCamControl / DSLR–gphoto2 • Test Koneksi & Test Ambil Foto |
-| **Printer** | Aktifkan cetak • pilih printer (daftar dari OS) • jumlah salinan • Auto-Print • perintah cetak kustom • Test Print |
+| **Frame Template** | Tambah/hapus frame, upload PNG, atur layout & jumlah pose, edit di Layout Editor, set default. Tersimpan permanen di Firestore. |
+| **Kamera** | Countdown timer • sumber kamera: Webcam / DSLR–digiCamControl / DSLR–gphoto2 • Test Koneksi & Test Ambil Foto (butuh agent jalan) |
+| **Printer** | Aktifkan cetak • pilih printer (daftar dari agent) • jumlah salinan • Auto-Print • perintah cetak kustom • Test Print (butuh agent jalan) |
 | **Pembayaran** | Aktifkan • Tunai (default) • upload gambar QRIS • catatan |
 | **Pembukuan** | Atur harga per sesi • pemasukan hari ini/total • export CSV • reset |
 
+Setiap tab punya tombol **Simpan** — perubahan baru tersimpan (dan muncul toast
+konfirmasi) setelah ditekan.
+
 ### Setup DSLR (Windows, direkomendasikan)
 
-1. Colok DSLR ke PC host via kabel USB.
+1. Colok DSLR ke PC booth via kabel USB.
 2. Install **digiCamControl** (gratis). Buka → *File → Settings → Webserver* → centang **Enable** (port 5513).
-3. Di panel Operator → Kamera → pilih **DSLR — digiCamControl**, URL `http://localhost:5513`.
-4. Klik **Test Koneksi** lalu **Test Ambil Foto**.
+3. Nyalakan agent (`start-photobooth.bat`).
+4. Panel Operator → Kamera → pilih **DSLR — digiCamControl**, URL `http://localhost:5513` → **Simpan**.
+5. Klik **Test Koneksi** lalu **Test Ambil Foto**.
 
 Mac/Linux: install `gphoto2`, pilih **DSLR — gPhoto2**.
 Alternatif tanpa software: keluarkan HDMI DSLR ke **HDMI capture card** → pilih **Webcam / Capture Card**.
 
 ### Setup Printer (kabel USB atau jaringan)
 
-Printer apa pun yang **drivernya terpasang di Windows PC host** otomatis terbaca
-di daftar (`Get-Printer`) — USB, jaringan, thermal/dye-sub (DNP, Mitsubishi,
+Printer apa pun yang **drivernya terpasang di PC booth** otomatis terbaca di daftar
+(agent menjalankan `Get-Printer`) — USB, jaringan, thermal/dye-sub (DNP, Mitsubishi,
 Canon SELPHY), semuanya.
 
-1. Pasang printer + install drivernya di Windows PC host. Set **ukuran kertas /
-   borderless** di *Printing Preferences* printer tsb.
-2. Panel Operator → Printer → **Aktifkan Cetak** → pilih printer (atau biarkan
-   kosong = printer default Windows) → atur salinan.
-3. Opsional **Auto-Print** (cetak otomatis tiap sesi selesai).
+1. Pasang printer + install drivernya di PC booth. Set **ukuran kertas / borderless**
+   di *Printing Preferences* printer tsb.
+2. Nyalakan agent.
+3. Panel Operator → Printer → **Aktifkan Cetak** → pilih printer (atau biarkan kosong
+   = printer default) → atur salinan → **Simpan**.
+4. Opsional **Auto-Print** (cetak otomatis tiap sesi selesai).
 
 Cetak dijalankan senyap: Windows `mspaint /pt "<file>" "<printer>"`, Linux/Mac `lp`.
 Bisa diganti di "perintah cetak kustom" (placeholder `{file}` `{printer}` `{copies}`).
 
-### Pembayaran (ATM / dompet digital — verifikasi manual)
+### Pembayaran (Tunai / QRIS — verifikasi manual)
 
 Muncul **setelah pelanggan lihat hasil foto**, sebelum bisa cetak & scan QR download.
-
-Pilihan bayar: **Tunai** (selalu ada) dan **Scan QRIS** (kalau QRIS diupload).
 
 1. Panel Operator → Pembayaran → **Aktifkan**.
 2. **Tunai**: tidak perlu setelan — pelanggan bayar ke petugas, petugas tekan "Sudah Bayar".
 3. **QRIS (opsional)**: upload **screenshot QR "Terima Uang" / QRIS** dari e-wallet
-   kamu (SeaBank / DANA / GoPay / OVO / ShopeePay) atau QRIS merchant. Crop sampai
-   hanya QR-nya. Ini yang bisa di-scan & dibayar pelanggan.
-4. Layar bayar menampilkan nominal + pilihan Tunai/QRIS. Setelah dibayar, petugas
-   tekan **"Sudah Bayar"** → lanjut ke cetak & QR download.
+   (SeaBank / DANA / GoPay / OVO / ShopeePay) atau QRIS merchant. Crop sampai hanya
+   QR-nya — inilah yang bisa di-scan & dibayar pelanggan.
 
 Tidak ada payment gateway — verifikasi manual, cukup untuk kios kecil, tanpa biaya
-per transaksi. Kalau butuh auto-verifikasi (QRIS dinamis), perlu integrasi
-Midtrans/Xendit terpisah.
+per transaksi.
 
 ## Download foto via QR
 
-Setiap foto final di-upload ke server, disimpan di `server/data/uploads/` + 1 baris
-di `booth.db` (sekaligus data pembukuan). Layar "Download" menampilkan QR
-`http://<ip-host>:4000/d/<id>` → HP pengunjung (WiFi sama) scan → tombol Download.
-
-## Konfigurasi (opsional) — `.env`
-
-| Var | Default | Guna |
-|---|---|---|
-| `PORT` | `4000` | port server |
-| `PUBLIC_BASE_URL` | `http://<LAN-IP>:PORT` | URL di dalam QR (set ke tunnel bila HP beda jaringan) |
-| `VITE_API_URL` | `http://<host>:4000` | alamat server dari sisi frontend |
+Setiap foto final di-upload ke Firestore (`pb_photos`, base64 dipecah jadi beberapa
+dokumen kecil karena batas 1MB/dokumen Firestore). Layar "Download" menampilkan QR
+`<url-kiosk>/d/<id>` — halaman itu (React route `/d/:id`) baca ulang & tampilkan
+fotonya, bisa di-scan dari HP mana saja yang punya internet.
 
 ## Struktur
 
 - `src/components/KioskApp.tsx` — seluruh alur kiosk + panel Operator
 - `src/components/FrameCompositor.tsx` — render frame + upload + cetak
 - `src/components/TemplateEditor.tsx` — Layout Editor per template
-- `src/lib/api.ts` — client ke server (photos, config, templates, capture, print)
-- `server/index.cjs` — backend: photos, config, templates, `/api/capture`, `/api/print`, `/api/printers`
+- `src/pages/Download.tsx` — halaman `/d/:id` untuk scan QR
+- `src/lib/firebase.ts` — init Firebase App + Firestore
+- `src/lib/firestoreBlob.ts` — helper simpan/baca string besar (foto/template) terpecah jadi beberapa dokumen
+- `src/lib/api.ts` — semua akses data (photos, config, templates) + job queue (capture, print, printers)
+- `agent/index.cjs` — proses lokal di PC booth: proses job dari `pb_jobs` (DSLR capture, list printer, cetak)
+- `firebase.config.json` — config Firebase (dipakai kiosk & agent, aman di-commit)
+- `server/index.cjs` — **legacy**, backend Express+SQLite lama; tidak dipakai lagi kecuali mau jalan 100% lokal tanpa Firebase (`node server/index.cjs`)

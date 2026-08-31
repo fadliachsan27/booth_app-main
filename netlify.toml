@@ -1,14 +1,12 @@
-# Netlify config for the FRONTEND ONLY (static kiosk UI).
+# Netlify config for the kiosk UI.
 #
-# IMPORTANT: Netlify can't run server/index.cjs (Express + SQLite + DSLR +
-# printing) — it only serves static files. Without a backend, the kiosk still
-# works (webcam capture, frame compositing, photo auto-saved to the device),
-# but photo upload / QR download / DSLR / printing are disabled and it shows
-# an "offline" fallback (see FrameCompositor / DownloadScreen).
+# The app talks directly to Firebase Firestore (see firebase.config.json,
+# committed — a Firebase Web API key is not a secret, access is controlled by
+# Firestore Security Rules). No backend server, no VITE_API_URL needed.
 #
-# To get those working from this Netlify deploy, host server/ somewhere with a
-# public URL (Render, Railway, your own PC via a tunnel, ...) and set the
-# VITE_API_URL environment variable below (or in Netlify's UI) to that URL.
+# DSLR capture and printing are done by agent/index.cjs running on the booth
+# PC (npm run agent / start-photobooth.bat) — it talks to the same Firebase
+# project over a job queue, no exposed port or tunnel required.
 
 [build]
   command = "npm run build"
@@ -16,9 +14,9 @@
 
 [build.environment]
   NODE_VERSION = "22"
-  # VITE_API_URL = "https://your-backend.onrender.com"
 
-# React Router — serve index.html for any path so client-side routing works.
+# React Router — serve index.html for any path so client-side routing
+# (including /d/:id, the photo download page) works.
 [[redirects]]
   from = "/*"
   to = "/index.html"

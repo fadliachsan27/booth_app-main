@@ -3,4 +3,5 @@
 node_modules
 dist
 server/data
+agent/data
 tunnel-log.txt

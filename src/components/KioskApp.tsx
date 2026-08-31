@@ -17,7 +17,7 @@ import TemplateEditor from "@/components/TemplateEditor";
 import FrameCompositor from "@/components/FrameCompositor";
 import {
   listPhotos, clearPhotos, getConfig, saveConfig as apiSaveConfig,
-  listTemplates, saveTemplates, cameraStatus, dslrCapture, liveviewUrl,
+  listTemplates, saveTemplates, cameraStatus, dslrCapture,
   listPrinters, printPhoto, serverOnline as apiServerOnline, DEFAULT_CONFIG,
   type BoothConfig, type CameraSource, type CameraStatus,
 } from "@/lib/api";
@@ -551,7 +551,6 @@ function CameraScreen({ template, cameraSource = "webcam", onComplete, onCancel,
   const [photoIndex, setPhotoIndex] = useState(0);
   const [capturedSlots, setCapturedSlots] = useState<number[]>([]);
   const [capturing, setCapturing] = useState(false);
-  const [lvTick, setLvTick] = useState(0);
   const [dslrError, setDslrError] = useState(false);
   const capturedPhotosRef = useRef<string[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -574,13 +573,6 @@ function CameraScreen({ template, cameraSource = "webcam", onComplete, onCancel,
     };
     startCamera();
     return () => { stream?.getTracks().forEach(t => t.stop()); };
-  }, [isDslr]);
-
-  // DSLR live view — refresh the preview frame periodically
-  useEffect(() => {
-    if (!isDslr) return;
-    const id = setInterval(() => setLvTick(t => t + 1), 450);
-    return () => clearInterval(id);
   }, [isDslr]);
 
   // Countdown logic
@@ -665,15 +657,10 @@ function CameraScreen({ template, cameraSource = "webcam", onComplete, onCancel,
       {/* Full-screen camera viewfinder */}
       <div className="flex-1 relative overflow-hidden">
         {isDslr ? (
-          dslrError ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/30">
-              <Camera className="h-20 w-20" strokeWidth={1} />
-              <span className="text-xs tracking-widest uppercase">Bersiap...</span>
-            </div>
-          ) : (
-            <img src={`${liveviewUrl()}${lvTick}`} alt="" onError={() => setDslrError(true)}
-              className="absolute inset-0 w-full h-full object-cover" />
-          )
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-white/30">
+            <Camera className="h-20 w-20" strokeWidth={1} />
+            <span className="text-xs tracking-widest uppercase">Bersiap...</span>
+          </div>
         ) : (
           <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
         )}
